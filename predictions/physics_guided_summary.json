@@ -1,0 +1,31 @@
+{
+  "method": "physics-guided grid candidates + old-dataset exclusion + trained ML frequency prediction",
+  "all_recommendations_are_unseen": true,
+  "old_dataset_rows": 2039,
+  "candidate_grid_rows": 11160,
+  "unseen_candidate_rows": 9121,
+  "eps_eff_used": 4.760330578512396,
+  "best_recommendation": {
+    "LG": 5.5,
+    "WR": 12.25,
+    "LR": 3.0,
+    "WF": 3.5,
+    "physics_fc": 7.0,
+    "physics_score": 0.8919270155254131,
+    "prob_resonant": 0.5757788252444105,
+    "pred_FL": 5.302117760319186,
+    "pred_FU": 8.361221416396729,
+    "pred_BW": 3.232973062058261,
+    "expected_BW": 1.8614774317187301,
+    "combined_score": 1.624664713452841
+  },
+  "best_known_dataset_row": {
+    "LG": 5.5,
+    "WR": 12.5,
+    "LR": 3.0,
+    "WF": 2.8,
+    "FL": 5.3,
+    "FU": 8.97,
+    "BW": 3.670000000000001
+  }
+}

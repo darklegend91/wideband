@@ -1,0 +1,17 @@
+data/
+.venv/
+high_
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Trained model artifacts
+*.pkl
+*.pickle
+*.joblib
+
+# Generated model/output folders
+model/
+active_val_high_bw_resonant_outputs/
+research_outputs*/models/

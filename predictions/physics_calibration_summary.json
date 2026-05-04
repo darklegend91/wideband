@@ -1,0 +1,20 @@
+{
+  "eps_eff_median_raw": 4.760330578512396,
+  "eps_eff_used": 4.760330578512396,
+  "high_bw_fc_median": 6.9,
+  "high_bw_frac_bw_median": 0.48211755712614035,
+  "high_bw_WR_lambda_ratio_median": 0.611790909090909,
+  "high_bw_LG_lambda_ratio_median": 0.29770909090909087,
+  "high_bw_WF_lambda_ratio_median": 0.18661454545454542,
+  "best_known": {
+    "LG": 5.5,
+    "WR": 12.5,
+    "LR": 3.0,
+    "WF": 2.8,
+    "FL": 5.3,
+    "FU": 8.97,
+    "BW": 3.670000000000001,
+    "fc": 7.135,
+    "frac_bw": 0.514365802382621
+  }
+}
