@@ -1,0 +1,196 @@
+{
+  "data_path": "data/UBW-data-final.xlsx",
+  "feedback_path": "data/feedback_simulations.csv",
+  "original_rows_before_feedback": 2039,
+  "feedback_rows_loaded": 24,
+  "rows": 2063,
+  "features": 72,
+  "train_rows": 1650,
+  "validation_rows": 413,
+  "resonant_rows": 1637,
+  "dead_rows": 426,
+  "target_window_rows": 1637,
+  "source_counts": {
+    "original": 2039,
+    "feedback": 24
+  },
+  "validation_classifier": {
+    "accuracy": 0.8910411622276029,
+    "balanced_accuracy": 0.7875896700143472,
+    "precision": 0.9054441260744985,
+    "recall": 0.9634146341463414,
+    "f1": 0.9335302806499262,
+    "auc": 0.9199067431850789,
+    "loss": 0.6712909981203927
+  },
+  "validation_regression": {
+    "BW": {
+      "r2": 0.5624890833023533,
+      "mae": 0.329880890122464,
+      "rmse": 0.5462727432260488
+    },
+    "FL": {
+      "r2": 0.7430551083137124,
+      "mae": 0.21743444990137115,
+      "rmse": 0.4095848014216449
+    },
+    "FU": {
+      "r2": 0.566649787582113,
+      "mae": 0.4079243261877056,
+      "rmse": 0.6266347650955195
+    }
+  },
+  "vlookup_known_data_classifier": {
+    "accuracy": 1.0,
+    "balanced_accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "auc": 1.0,
+    "loss": 9.99999972218069e-10
+  },
+  "vlookup_known_data_regression": {
+    "BW": {
+      "r2": 1.0,
+      "mae": 0.0,
+      "rmse": 0.0
+    },
+    "FL": {
+      "r2": 1.0,
+      "mae": 0.0,
+      "rmse": 0.0
+    },
+    "FU": {
+      "r2": 1.0,
+      "mae": 0.0,
+      "rmse": 0.0
+    }
+  },
+  "vlookup_assisted_validation_classifier": {
+    "accuracy": 1.0,
+    "balanced_accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "auc": 1.0,
+    "loss": 9.99999972218069e-10
+  },
+  "vlookup_assisted_validation_regression": {
+    "BW": {
+      "r2": 1.0,
+      "mae": 0.0,
+      "rmse": 0.0
+    },
+    "FL": {
+      "r2": 1.0,
+      "mae": 0.0,
+      "rmse": 0.0
+    },
+    "FU": {
+      "r2": 1.0,
+      "mae": 0.0,
+      "rmse": 0.0
+    }
+  },
+  "vlookup_rows": 2063,
+  "vlookup_validation_coverage": 1.0,
+  "chosen_threshold": 0.4899999999999998,
+  "best_known_data_row": {
+    "LG": 5.5,
+    "WR": 12.5,
+    "LR": 3.0,
+    "WF": 2.8,
+    "FL": 5.3,
+    "FU": 8.97,
+    "BW": 3.670000000000001
+  },
+  "best_unseen_ml_prediction": {
+    "LG": 6.0,
+    "WR": 12.25,
+    "LR": 3.3,
+    "WF": 4.5,
+    "prob_resonant": 0.8499344477763909,
+    "pred_FL": 5.1397815713626285,
+    "pred_FU": 8.425420924140385,
+    "pred_BW": 3.400616551593539,
+    "selection_score": 2.530974174213814
+  },
+  "best_physics_guided_prediction": {
+    "LG": 6.0,
+    "WR": 12.25,
+    "LR": 3.3,
+    "WF": 4.5,
+    "prob_resonant": 0.8499344477763909,
+    "pred_FL": 5.1397815713626285,
+    "pred_FU": 8.425420924140385,
+    "pred_BW": 3.400616551593539,
+    "physics_score": 0.7208903988172269,
+    "physics_guided_score": 2.319048416503199
+  },
+  "best_active_learning_candidate": {
+    "active_rank": 1,
+    "LG": 6.5,
+    "WR": 11.75,
+    "LR": 3.3,
+    "WF": 4.7,
+    "why_simulate": "balanced active-learning candidate",
+    "active_learning_score": 0.6013740645846785,
+    "classification_uncertainty": 0.9577017390540898,
+    "total_model_std": 0.5396697872705929,
+    "prob_resonant": 0.5211491304729551,
+    "pred_FL": 5.365842781051851,
+    "pred_FU": 8.12593316042123,
+    "pred_BW": 2.8989723835357095,
+    "expected_BW": 1.5107969369447452,
+    "bw_model_std": 0.30050567461704963,
+    "fl_model_std": 0.06353718464494021,
+    "fu_model_std": 0.17562692800860305,
+    "physics_fc": 6.6,
+    "physics_score": 0.43240701486699823,
+    "physics_guided_score": 0.9638878463969697
+  },
+  "top_features": [
+    {
+      "feature": "LG2_WR",
+      "mean_importance": 0.044738477034079016
+    },
+    {
+      "feature": "LG_WR",
+      "mean_importance": 0.03969980480395655
+    },
+    {
+      "feature": "LG2",
+      "mean_importance": 0.031291488067527316
+    },
+    {
+      "feature": "LG3",
+      "mean_importance": 0.030347111391230162
+    },
+    {
+      "feature": "WR_d11_WF",
+      "mean_importance": 0.02951695984079633
+    },
+    {
+      "feature": "WR2_LG",
+      "mean_importance": 0.029426201542190743
+    },
+    {
+      "feature": "cosLG1",
+      "mean_importance": 0.02767716649466715
+    },
+    {
+      "feature": "logLG",
+      "mean_importance": 0.02739547673531374
+    },
+    {
+      "feature": "WR_LGr",
+      "mean_importance": 0.026049547640297877
+    },
+    {
+      "feature": "LG",
+      "mean_importance": 0.025882090048967674
+    }
+  ],
+  "regression_training_rows": 1309,
+  "final_regression_training_rows": 1637
+}

@@ -14,6 +14,12 @@ For a beginner-friendly explanation of every folder and the full run workflow, r
 folder_running_guide.md
 ```
 
+For the current practical command guide covering feedback, VLOOKUP, and active learning, read:
+
+```text
+USAGE_GUIDE.md
+```
+
 For a plain-language explanation of each ML technique and its role in the final model, read:
 
 ```text
@@ -116,10 +122,67 @@ Important files:
 ```text
 research_outputs/research_summary.json
 research_outputs/models/consolidated_antenna_model.pkl
+research_outputs/tables/known_data_vlookup_table.csv
+research_outputs/tables/validation_vlookup_assisted_predictions.csv
+research_outputs/tables/active_learning_next_20_simulation_plan.csv
+research_outputs/tables/active_learning_feedback_template_next_20.csv
 research_outputs/tables/technique_comparison_metrics.csv
 research_outputs/tables/validation_regression_predictions.csv
 research_outputs/tables/top_100_unseen_grid_predictions.csv
 research_outputs/tables/physics_guided_top_25_unseen_predictions.csv
+```
+
+## Known-Data VLOOKUP Layer
+
+The pipeline now builds a VLOOKUP-style table from every simulated antenna geometry:
+
+```text
+LG, WR, LR, WF -> FL, FU, BW, resonant/dead label
+```
+
+When a prediction request exactly matches an older simulated design, the saved model artifact returns the known simulator result from the lookup table. When the design is not in old data, it falls back to the ML classifier and regressors.
+
+This gives exact known-data metrics:
+
+```text
+vlookup_known_data_classifier accuracy = 100%
+vlookup_known_data_regression MAE = 0
+```
+
+Keep this separate from the pure ML validation score. The VLOOKUP score measures memory over older simulated rows; the pure ML validation score measures how well the learned model generalizes without using the lookup answer.
+
+## Active Learning Feedback Loop
+
+Each run exports the next recommended simulation batch:
+
+```text
+research_outputs/tables/active_learning_next_20_simulation_plan.csv
+research_outputs/tables/active_learning_feedback_template_next_20.csv
+```
+
+The selection combines:
+
+- high predicted bandwidth
+- resonant/dead boundary uncertainty
+- disagreement between regression models
+- physics-guided score
+
+Simulate those antenna geometries in HFSS/CST, fill only these columns in the feedback template:
+
+```text
+Actual FL, Actual FU, Actual BW
+```
+
+Append those completed rows to:
+
+```text
+data/feedback_simulations.csv
+```
+
+Then rerun the pipeline. To export a different batch size:
+
+```bash
+python research_pipeline.py --feedback data/feedback_simulations.csv --output research_outputs_feedback_vlookup --active-n 30
 ```
 
 Important plots for the paper:

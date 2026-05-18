@@ -304,6 +304,99 @@ def build_features(df_in: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(f)
 
 
+def lookup_key_frame(df_in: pd.DataFrame) -> pd.DataFrame:
+    return df_in[["LG", "WR", "LR", "WF"]].round(3)
+
+
+def build_vlookup_table(df: pd.DataFrame) -> pd.DataFrame:
+    cols = ["LG", "WR", "LR", "WF", "FL", "FU", "BW", "is_resonant", "in_target_window", "source"]
+    lookup = df[cols].copy()
+    lookup[["LG", "WR", "LR", "WF"]] = lookup_key_frame(lookup)
+    return (
+        lookup.sort_values(["source", "BW"], ascending=[True, False])
+        .drop_duplicates(subset=["LG", "WR", "LR", "WF"], keep="first")
+        .reset_index(drop=True)
+    )
+
+
+def attach_vlookup_predictions(candidates: pd.DataFrame, lookup_table: pd.DataFrame) -> pd.DataFrame:
+    left = candidates.copy()
+    left[["LG", "WR", "LR", "WF"]] = lookup_key_frame(left)
+    lookup = lookup_table.rename(
+        columns={
+            "FL": "lookup_FL",
+            "FU": "lookup_FU",
+            "BW": "lookup_BW",
+            "is_resonant": "lookup_is_resonant",
+            "in_target_window": "lookup_in_target_window",
+            "source": "lookup_source",
+        }
+    )
+    merged = left.merge(
+        lookup,
+        on=["LG", "WR", "LR", "WF"],
+        how="left",
+    )
+    merged["known_in_lookup"] = merged["lookup_BW"].notna()
+    return merged
+
+
+def apply_vlookup_to_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
+    out = predictions.copy()
+    known = out["known_in_lookup"].fillna(False).to_numpy(bool)
+    out["prob_resonant_lookup_assisted"] = np.where(known, out["lookup_is_resonant"], out["prob_resonant"])
+    out["pred_FL_lookup_assisted"] = np.where(known, out["lookup_FL"], out["pred_FL"])
+    out["pred_FU_lookup_assisted"] = np.where(known, out["lookup_FU"], out["pred_FU"])
+    out["pred_BW_lookup_assisted"] = np.where(known, out["lookup_BW"], out["pred_BW"])
+    return out
+
+
+def evaluate_vlookup_known_data(lookup_table: pd.DataFrame) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    y_true = lookup_table["is_resonant"].to_numpy()
+    prob = lookup_table["is_resonant"].to_numpy(float)
+    class_metrics = classifier_metrics(y_true, prob, 0.5)
+    reg_metrics = {}
+    res = lookup_table[lookup_table["BW"] > 0].copy()
+    for target in ["BW", "FL", "FU"]:
+        reg_metrics[target] = {
+            "r2": float(r2_score(res[target], res[target])),
+            "mae": float(mean_absolute_error(res[target], res[target])),
+            "rmse": float(mean_squared_error(res[target], res[target]) ** 0.5),
+        }
+    return class_metrics, reg_metrics
+
+
+def evaluate_lookup_assisted_validation(
+    df_val: pd.DataFrame,
+    val_prob: np.ndarray,
+    pred_table: pd.DataFrame,
+    lookup_table: pd.DataFrame,
+    threshold: float,
+) -> tuple[dict[str, float], dict[str, dict[str, float]], pd.DataFrame]:
+    val_predictions = df_val[["LG", "WR", "LR", "WF", "FL", "FU", "BW", "is_resonant"]].copy()
+    val_predictions["prob_resonant"] = val_prob
+    pred_cols = pred_table[["LG", "WR", "LR", "WF", "pred_BW", "pred_FL", "pred_FU"]]
+    val_predictions = val_predictions.merge(pred_cols, on=["LG", "WR", "LR", "WF"], how="left")
+    val_predictions = attach_vlookup_predictions(val_predictions, lookup_table)
+    val_predictions = apply_vlookup_to_predictions(val_predictions)
+
+    class_metrics = classifier_metrics(
+        val_predictions["is_resonant"].to_numpy(),
+        val_predictions["prob_resonant_lookup_assisted"].to_numpy(float),
+        threshold,
+    )
+
+    reg_metrics = {}
+    val_res = val_predictions[(val_predictions["BW"] > 0) & val_predictions["pred_BW_lookup_assisted"].notna()]
+    for target in ["BW", "FL", "FU"]:
+        reg_metrics[target] = {
+            "r2": float(r2_score(val_res[target], val_res[f"pred_{target}_lookup_assisted"])),
+            "mae": float(mean_absolute_error(val_res[target], val_res[f"pred_{target}_lookup_assisted"])),
+            "rmse": float(mean_squared_error(val_res[target], val_res[f"pred_{target}_lookup_assisted"]) ** 0.5),
+        }
+    return class_metrics, reg_metrics, val_predictions
+
+
 def safe_auc(y_true: np.ndarray, prob: np.ndarray) -> float:
     if len(np.unique(y_true)) < 2:
         return float("nan")
@@ -403,8 +496,8 @@ def fit_classifier(X_train: pd.DataFrame, y_train: np.ndarray) -> dict[str, obje
     for tr_idx, va_idx in skf.split(X_train, y_train):
         for name, model in base:
             m = deepcopy(model)
-            m.fit(X_train.iloc[tr_idx], y_train[tr_idx])
-            oof.loc[va_idx, name] = m.predict_proba(X_train.iloc[va_idx])[:, 1]
+            m.fit(X_train.iloc[tr_idx], y_train[tr_idx])                        #type:ignore
+            oof.loc[va_idx, name] = m.predict_proba(X_train.iloc[va_idx])[:, 1] #type:ignore
 
     meta = LogisticRegressionCV(
         Cs=20,
@@ -421,7 +514,7 @@ def fit_classifier(X_train: pd.DataFrame, y_train: np.ndarray) -> dict[str, obje
     final_base = []
     for name, model in base:
         fitted = deepcopy(model)
-        fitted.fit(X_train, y_train)
+        fitted.fit(X_train, y_train)                                                                    #type:ignore
         final_base.append((name, fitted))
 
     return {
@@ -435,8 +528,8 @@ def fit_classifier(X_train: pd.DataFrame, y_train: np.ndarray) -> dict[str, obje
 
 
 def predict_res_prob(clf: dict[str, object], X_eval: pd.DataFrame) -> np.ndarray:
-    base_prob = pd.DataFrame({name: model.predict_proba(X_eval)[:, 1] for name, model in clf["base"]})
-    return clf["meta"].predict_proba(base_prob)[:, 1]
+    base_prob = pd.DataFrame({name: model.predict_proba(X_eval)[:, 1] for name, model in clf["base"]}) #type:ignore
+    return clf["meta"].predict_proba(base_prob)[:, 1]                                                   #type:ignore
 
 
 def fit_regressors(df_train: pd.DataFrame) -> tuple[dict[str, list[tuple[str, object]]], pd.DataFrame]:
@@ -490,7 +583,7 @@ def fit_regressors(df_train: pd.DataFrame) -> tuple[dict[str, list[tuple[str, ob
 
 def predict_reg(regs: dict[str, list[tuple[str, object]]], X_eval: pd.DataFrame, target: str) -> tuple[np.ndarray, np.ndarray]:
     weights = np.array([0.40, 0.35, 0.25])
-    preds = np.column_stack([model.predict(X_eval) for _, model in regs[target]])
+    preds = np.column_stack([model.predict(X_eval) for _, model in regs[target]])                                               #type:ignore
     return preds @ weights, preds.std(axis=1)
 
 
@@ -572,7 +665,7 @@ def train_epoch_monitor(
 def technique_comparison(
     clf: dict[str, object], X_val: pd.DataFrame, y_val: np.ndarray
 ) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
-    base_probs = {name: model.predict_proba(X_val)[:, 1] for name, model in clf["base"]}
+    base_probs = {name: model.predict_proba(X_val)[:, 1] for name, model in clf["base"]}                                                                        #type:ignore
     stacked_prob = predict_res_prob(clf, X_val)
     stages = {
         "Extra Trees": base_probs["ET"],
@@ -585,7 +678,7 @@ def technique_comparison(
     rows = []
     for name, prob in stages.items():
         threshold = clf["threshold"] if name == "Consolidated Stacked Model" else 0.5
-        rows.append({"technique": name, "threshold": threshold, **classifier_metrics(y_val, prob, threshold)})
+        rows.append({"technique": name, "threshold": threshold, **classifier_metrics(y_val, prob, threshold)})                                                       #type:ignore
     return pd.DataFrame(rows), stages
 
 
@@ -705,7 +798,7 @@ def save_regression_plots(pred_table: pd.DataFrame, paths: dict[str, Path]) -> N
 
 def save_feature_importance(clf: dict[str, object], feature_names: list[str], paths: dict[str, Path]) -> pd.DataFrame:
     rows = []
-    for name, model in clf["base"]:
+    for name, model in clf["base"]:                                                                                                     #type:ignore
         if hasattr(model, "feature_importances_"):
             rows.append(pd.Series(model.feature_importances_, index=feature_names, name=name))
     imp = pd.concat(rows, axis=1)
@@ -731,16 +824,29 @@ def make_grid() -> pd.DataFrame:
 
 
 def rank_grid(
-    df: pd.DataFrame, clf: dict[str, object], regs: dict[str, list[tuple[str, object]]], paths: dict[str, Path]
+    df: pd.DataFrame,
+    clf: dict[str, object],
+    regs: dict[str, list[tuple[str, object]]],
+    paths: dict[str, Path],
+    lookup_table: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     grid = make_grid()
-    known = set(zip(df["LG"].round(3), df["WR"].round(3), df["LR"].round(3), df["WF"].round(3)))
+    known = set(zip(lookup_table["LG"], lookup_table["WR"], lookup_table["LR"], lookup_table["WF"]))
     grid["known_in_data"] = [tuple(x) in known for x in zip(grid["LG"].round(3), grid["WR"].round(3), grid["LR"].round(3), grid["WF"].round(3))]
     Xg = build_features(grid)
     grid["prob_resonant"] = predict_res_prob(clf, Xg)
     grid["pred_BW"], grid["bw_model_std"] = predict_reg(regs, Xg, "BW")
     grid["pred_FL"], grid["fl_model_std"] = predict_reg(regs, Xg, "FL")
     grid["pred_FU"], grid["fu_model_std"] = predict_reg(regs, Xg, "FU")
+    grid = attach_vlookup_predictions(grid, lookup_table)
+    grid = apply_vlookup_to_predictions(grid)
+    known_lookup = grid["known_in_lookup"].to_numpy(bool)
+    grid["prob_resonant"] = np.where(known_lookup, grid["prob_resonant_lookup_assisted"], grid["prob_resonant"])
+    grid["pred_BW"] = np.where(known_lookup, grid["pred_BW_lookup_assisted"], grid["pred_BW"])
+    grid["pred_FL"] = np.where(known_lookup, grid["pred_FL_lookup_assisted"], grid["pred_FL"])
+    grid["pred_FU"] = np.where(known_lookup, grid["pred_FU_lookup_assisted"], grid["pred_FU"])
+    for col in ["bw_model_std", "fl_model_std", "fu_model_std"]:
+        grid[col] = np.where(known_lookup, 0.0, grid[col])
     grid["pred_BW"] = grid["pred_BW"].clip(lower=0)
     grid["pred_fc"] = (grid["pred_FL"] + grid["pred_FU"]) / 2.0
     grid["pred_frac_bw"] = grid["pred_BW"] / grid["pred_fc"]
@@ -801,6 +907,114 @@ def physics_guided_candidates(
     return ranked
 
 
+def minmax(series: pd.Series) -> pd.Series:
+    lo = series.min()
+    hi = series.max()
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return pd.Series(np.zeros(len(series)), index=series.index)
+    return (series - lo) / (hi - lo)
+
+
+def active_learning_candidates(
+    top_unseen: pd.DataFrame,
+    physics_ranked: pd.DataFrame,
+    paths: dict[str, Path],
+    active_n: int,
+) -> pd.DataFrame:
+    pool = top_unseen.copy()
+    physics_cols = physics_ranked[
+        ["LG", "WR", "LR", "WF", "physics_score", "physics_guided_score", "physics_fc"]
+    ].copy()
+    pool = pool.merge(physics_cols, on=["LG", "WR", "LR", "WF"], how="left")
+    pool["classification_uncertainty"] = 1.0 - (2.0 * (pool["prob_resonant"] - 0.5).abs()).clip(upper=1.0)
+    pool["total_model_std"] = pool[["bw_model_std", "fl_model_std", "fu_model_std"]].sum(axis=1)
+    pool["active_learning_score"] = (
+        0.35 * minmax(pool["classification_uncertainty"])
+        + 0.25 * minmax(pool["total_model_std"])
+        + 0.25 * minmax(pool["expected_BW"])
+        + 0.15 * minmax(pool["physics_guided_score"].fillna(pool["selection_score"]))
+    )
+    pool["why_simulate"] = "balanced active-learning candidate"
+
+    exploitation = pool.sort_values("expected_BW", ascending=False).head(max(1, active_n // 4)).copy()
+    exploitation["why_simulate"] = "high predicted bandwidth"
+    boundary = pool.sort_values("classification_uncertainty", ascending=False).head(max(1, active_n // 4)).copy()
+    boundary["why_simulate"] = "resonant/dead boundary uncertainty"
+    uncertainty = pool.sort_values("total_model_std", ascending=False).head(max(1, active_n // 4)).copy()
+    uncertainty["why_simulate"] = "high regression disagreement"
+    balanced = pool.sort_values("active_learning_score", ascending=False).head(active_n).copy()
+
+    selected = pd.concat([exploitation, boundary, uncertainty, balanced], ignore_index=True)
+    selected = (
+        selected.sort_values("active_learning_score", ascending=False)
+        .drop_duplicates(subset=["LG", "WR", "LR", "WF"], keep="first")
+        .head(active_n)
+        .reset_index(drop=True)
+    )
+    selected.insert(0, "active_rank", np.arange(1, len(selected) + 1))
+
+    export_cols = [
+        "active_rank",
+        "LG",
+        "WR",
+        "LR",
+        "WF",
+        "why_simulate",
+        "active_learning_score",
+        "classification_uncertainty",
+        "total_model_std",
+        "prob_resonant",
+        "pred_FL",
+        "pred_FU",
+        "pred_BW",
+        "expected_BW",
+        "bw_model_std",
+        "fl_model_std",
+        "fu_model_std",
+        "physics_fc",
+        "physics_score",
+        "physics_guided_score",
+    ]
+    export = selected[[col for col in export_cols if col in selected.columns]]
+    export.to_csv(paths["tables"] / f"active_learning_next_{active_n}_simulation_plan.csv", index=False)
+
+    feedback_template = export.rename(
+        columns={
+            "pred_FL": "Pred Freq(Lower) GHz",
+            "pred_FU": "Pred Freq(Upper) GHz",
+            "pred_BW": "Pred BW GHz",
+            "prob_resonant": "Probability resonant",
+            "expected_BW": "Expected BW GHz",
+            "active_learning_score": "Combined score",
+        }
+    )
+    feedback_template["Known in old dataset"] = False
+    feedback_template["Actual FL"] = ""
+    feedback_template["Actual FU"] = ""
+    feedback_template["Actual BW"] = ""
+    feedback_cols = [
+        "LG",
+        "WR",
+        "LR",
+        "WF",
+        "physics_fc",
+        "Pred Freq(Lower) GHz",
+        "Pred Freq(Upper) GHz",
+        "Pred BW GHz",
+        "Probability resonant",
+        "Expected BW GHz",
+        "Combined score",
+        "Known in old dataset",
+        "Actual FL",
+        "Actual FU",
+        "Actual BW",
+    ]
+    feedback_template[[col for col in feedback_cols if col in feedback_template.columns]].to_csv(
+        paths["tables"] / f"active_learning_feedback_template_next_{active_n}.csv", index=False
+    )
+    return export
+
+
 def save_candidate_plots(df: pd.DataFrame, top_unseen: pd.DataFrame, physics_ranked: pd.DataFrame, paths: dict[str, Path]) -> None:
     best_known = df.sort_values("BW", ascending=False).head(10).copy()
     best_unseen = top_unseen.head(10).copy()
@@ -816,8 +1030,8 @@ def save_candidate_plots(df: pd.DataFrame, top_unseen: pd.DataFrame, physics_ran
     ax.set_ylabel("Bandwidth (GHz)")
     ax.legend(
         handles=[
-            plt.Rectangle((0, 0), 1, 1, color="#16a34a", label="Known simulated"),
-            plt.Rectangle((0, 0), 1, 1, color="#2563eb", label="Predicted unseen"),
+            plt.Rectangle((0, 0), 1, 1, color="#16a34a", label="Known simulated"),                                                                  #type:ignore
+            plt.Rectangle((0, 0), 1, 1, color="#2563eb", label="Predicted unseen"),                                                                 #type:ignore
         ]
     )
     fig.tight_layout()
@@ -859,6 +1073,13 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if feedback_path:
         print(f"Included {feedback_rows} feedback simulation row(s) from {feedback_path}")
     print(f"Resonant rows: {int(df.is_resonant.sum())}; dead rows: {int((df.is_resonant == 0).sum())}")
+    lookup_table = build_vlookup_table(df)
+    lookup_table.to_csv(paths["tables"] / "known_data_vlookup_table.csv", index=False)
+    vlookup_known_classifier, vlookup_known_regression = evaluate_vlookup_known_data(lookup_table)
+    pd.DataFrame([vlookup_known_classifier]).to_csv(paths["tables"] / "known_data_vlookup_classifier_metrics.csv", index=False)
+    pd.DataFrame.from_dict(vlookup_known_regression, orient="index").reset_index(names="target").to_csv(
+        paths["tables"] / "known_data_vlookup_regression_metrics.csv", index=False
+    )
 
     train_idx, val_idx = train_test_split(
         np.arange(len(df)),
@@ -873,14 +1094,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     epoch_history, monitor = train_epoch_monitor(df_train, df_val, args.epochs, paths)
     save_epoch_plots(epoch_history, paths)
-    save_confusion_plot(monitor["y_true"], monitor["y_pred"], "MLP Epoch Monitor Confusion Matrix", paths["plots"] / "epoch_monitor_confusion_matrix.png")
+    save_confusion_plot(monitor["y_true"], monitor["y_pred"], "MLP Epoch Monitor Confusion Matrix", paths["plots"] / "epoch_monitor_confusion_matrix.png")                                      #type:ignore
 
     clf = fit_classifier(X_train, y_train)
     val_prob = predict_res_prob(clf, X_val)
     val_pred = (val_prob >= clf["threshold"]).astype(int)
-    val_metrics = classifier_metrics(y_val, val_prob, clf["threshold"])
+    val_metrics = classifier_metrics(y_val, val_prob, clf["threshold"])                                                                                                                     #type:ignore
     save_confusion_plot(y_val, val_pred, "Consolidated Model Validation Confusion Matrix", paths["plots"] / "consolidated_confusion_matrix.png")
-    save_probability_plot(y_val, val_prob, clf["threshold"], paths)
+    save_probability_plot(y_val, val_prob, clf["threshold"], paths)                                                                                                                         #type:ignore
 
     technique_metrics, _ = technique_comparison(clf, X_val, y_val)
     technique_metrics.to_csv(paths["tables"] / "technique_comparison_metrics.csv", index=False)
@@ -889,13 +1110,24 @@ def run_pipeline(args: argparse.Namespace) -> None:
     regs, reg_train_data = fit_regressors(df_train)
     reg_metrics, pred_table = evaluate_regressors(regs, df_val)
     pred_table.to_csv(paths["tables"] / "validation_regression_predictions.csv", index=False)
+    vlookup_val_classifier, vlookup_val_regression, vlookup_val_predictions = evaluate_lookup_assisted_validation(
+        df_val, val_prob, pred_table, lookup_table, clf["threshold"]                                                                                                                            #type:ignore
+    )
+    vlookup_val_predictions.to_csv(paths["tables"] / "validation_vlookup_assisted_predictions.csv", index=False)
+    pd.DataFrame([vlookup_val_classifier]).to_csv(
+        paths["tables"] / "validation_vlookup_assisted_classifier_metrics.csv", index=False
+    )
+    pd.DataFrame.from_dict(vlookup_val_regression, orient="index").reset_index(names="target").to_csv(
+        paths["tables"] / "validation_vlookup_assisted_regression_metrics.csv", index=False
+    )
     save_regression_plots(pred_table, paths)
     feature_importance = save_feature_importance(clf, X_train.columns.tolist(), paths)
 
     final_clf = fit_classifier(build_features(df), df["is_resonant"].to_numpy())
     final_regs, final_reg_train_data = fit_regressors(df)
-    top_all, top_unseen = rank_grid(df, final_clf, final_regs, paths)
+    top_all, top_unseen = rank_grid(df, final_clf, final_regs, paths, lookup_table)
     physics_ranked = physics_guided_candidates(df, top_unseen, paths, args.top_n)
+    active_learning_plan = active_learning_candidates(top_unseen, physics_ranked, paths, args.active_n)
     save_candidate_plots(df, top_unseen, physics_ranked, paths)
 
     artifact = {
@@ -903,6 +1135,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "regressors": final_regs,
         "feature_columns": X_train.columns.tolist(),
         "threshold": final_clf["threshold"],
+        "vlookup_table": lookup_table,
+        "vlookup_key_columns": ["LG", "WR", "LR", "WF"],
         "data_path": str(data_path),
         "target_window": {"FL_min": TARGET_FL_MIN, "FU_max": TARGET_FU_MAX},
     }
@@ -924,7 +1158,13 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "source_counts": {str(k): int(v) for k, v in df["source"].value_counts().to_dict().items()},
         "validation_classifier": val_metrics,
         "validation_regression": reg_metrics,
-        "chosen_threshold": float(clf["threshold"]),
+        "vlookup_known_data_classifier": vlookup_known_classifier,
+        "vlookup_known_data_regression": vlookup_known_regression,
+        "vlookup_assisted_validation_classifier": vlookup_val_classifier,
+        "vlookup_assisted_validation_regression": vlookup_val_regression,
+        "vlookup_rows": int(len(lookup_table)),
+        "vlookup_validation_coverage": float(vlookup_val_predictions["known_in_lookup"].mean()),
+        "chosen_threshold": float(clf["threshold"]),                                                                                                                #type:ignore
         "best_known_data_row": df.sort_values("BW", ascending=False).iloc[0][["LG", "WR", "LR", "WF", "FL", "FU", "BW"]].to_dict(),
         "best_unseen_ml_prediction": top_unseen.iloc[0][
             ["LG", "WR", "LR", "WF", "prob_resonant", "pred_FL", "pred_FU", "pred_BW", "selection_score"]
@@ -932,6 +1172,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         "best_physics_guided_prediction": physics_ranked.iloc[0][
             ["LG", "WR", "LR", "WF", "prob_resonant", "pred_FL", "pred_FU", "pred_BW", "physics_score", "physics_guided_score"]
         ].to_dict(),
+        "best_active_learning_candidate": active_learning_plan.iloc[0].to_dict(),
         "top_features": feature_importance.head(10)[["feature", "mean_importance"]].to_dict(orient="records"),
         "regression_training_rows": int(len(reg_train_data)),
         "final_regression_training_rows": int(len(final_reg_train_data)),
@@ -942,6 +1183,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     print(json.dumps(val_metrics, indent=2))
     print("\nValidation regression metrics")
     print(json.dumps(reg_metrics, indent=2))
+    print("\nVLOOKUP-assisted validation classifier metrics")
+    print(json.dumps(vlookup_val_classifier, indent=2))
     print(f"\nSaved outputs under: {paths['root'].resolve()}")
     print(f"Main plots folder: {paths['plots'].resolve()}")
     print(f"Top physics-guided candidates: {paths['tables'] / f'physics_guided_top_{args.top_n}_unseen_predictions.csv'}")
@@ -959,6 +1202,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=20, help="Epochs for the MLP learning-curve monitor.")
     parser.add_argument("--test-size", type=float, default=0.20, help="Validation fraction.")
     parser.add_argument("--top-n", type=int, default=25, help="Number of physics-guided unseen candidates to export.")
+    parser.add_argument("--active-n", type=int, default=20, help="Number of active-learning simulation candidates to export.")
     return parser.parse_args()
 
 

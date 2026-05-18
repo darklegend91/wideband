@@ -1,0 +1,2 @@
+accuracy,balanced_accuracy,precision,recall,f1,auc,loss
+1.0,1.0,1.0,1.0,1.0,1.0,9.99999972218069e-10
